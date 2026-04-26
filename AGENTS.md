@@ -1,27 +1,153 @@
-# BullshitBench Agent Instructions
+# BullshitBench Guide
 
-## Benchmark config alignment
+BullshitBench measures whether models detect nonsense, call it out clearly, and avoid confidently continuing with invalid assumptions.
 
-- Treat config alignment as part of any model/test run, publish, or leaderboard update. Do not leave benchmark results only in ad hoc run artifacts, temporary configs, or published CSV/JSONL files.
-- If a model/reasoning variant is published into `data/latest/*`, make sure the durable v1 config path knows about it. Use `config.json` for models that should remain in the reusable v1 run set, or document why a one-off config is intentionally kept separate.
-- If a model/reasoning variant is published into `data/v2/latest/*`, make sure the durable v2 config path knows about it. Use `config.v2.json` for models that should remain in the reusable v2 run set, or document why a one-off config is intentionally kept separate.
-- Use `config.new-models.v1.json` and `config.new-models.v2.json` for candidate catch-up sweeps before results are published. After publishing, either fold the successful model/reasoning variants into the main config or explicitly remove/defer them from the catch-up config.
-- Keep `collect.models`, `collect.model_reasoning_efforts`, and any `collect.model_request_overrides` in sync. If a model has non-default reasoning variants, every intended variant should be represented in `model_reasoning_efforts`.
-- Before adding a current OpenRouter slug, check whether the repo already has an equivalent older/beta/alias row in `data/latest/leaderboard.csv`, `data/v2/latest/leaderboard.csv`, and `viewer/index.v2.html` display aliases. Do not duplicate a row family unless the user explicitly wants a rerun of the new slug.
-- Avoid adding expensive or low-priority models to catch-up configs when the user has excluded them. In this repo, do not add `openai/gpt-5.4-pro` unless the user explicitly asks for that cost.
-- When adding new model IDs, update or plan the matching metadata path before publish: `data/model_metadata/model_launch_dates.csv` for release-date charts and `data/model_metadata/model_params.csv` where model-size/licensing data is available.
+This repository runs against an OpenAI-compatible `/v1/chat/completions` endpoint, records JSONL artifacts per model, grades with a configured judge model, and renders matplotlib charts. LM Studio, Ollama-compatible proxies, and hosted OpenAI-compatible domains are all treated as the same endpoint shape.
 
-## Private/local-only runs
+## What This Measures
 
-- If the user marks a model, run, dataset, or viewer as private, pre-release, local-only, not-for-publication, or not-for-GitHub, treat that instruction as overriding the normal config-alignment and publish workflow.
-- For private/local-only runs, do not write raw responses, grades, aggregate rows, reports, viewer HTML, leaderboard rows, model metadata, or configs into tracked repo paths. In particular, do not touch `data/latest/*`, `data/v2/latest/*`, `viewer/index.v2.html`, `config.json`, `config.v2.json`, `config.new-models.v1.json`, `config.new-models.v2.json`, or `data/model_metadata/*` unless the user later explicitly says to publish.
-- Store private/local-only artifacts outside the repo, preferably under `/Users/peter/.codex/private/bullshit-benchmark/<run-id>/`. If a local browser viewer is needed, serve it from that private directory on `127.0.0.1` rather than from the repo tree.
-- Before publishing, committing, or pushing any benchmark update, explicitly check that no private/local-only identifiers or files are in tracked content. At minimum run `git status --short --untracked-files=no`, inspect the intended diff, and use `git grep`/`git ls-files` for the private model IDs, run IDs, and local viewer paths.
-- Do not put private model IDs, API keys, raw private outputs, or exact private leaderboard results into tracked instructions or docs. If future-agent context is needed, keep exact details in a private handoff file outside the repo and reference it generically.
-- If `/Users/peter/.codex/private/bullshit-benchmark/PRIVATE_RUNS.md` exists, read it before handling local-only benchmark data, private viewer setup, or publish/push safety checks.
+- `Clear Pushback`: the model clearly rejects the broken premise.
+- `Partial Challenge`: the model flags issues but still engages the bad premise.
+- `Accepted Nonsense`: the model treats the nonsense as valid.
+
+The benchmark question set is `questions.json`, generated from the human-editable markdown source at `drafts/new-questions.md`.
+
+## Quick Start
+
+Start a guided run with virtualenv setup:
+
+```bash
+python3 scripts/run_test.py
+```
+
+This creates `.venv`, installs `requirements.txt`, loads `.env`, asks which models and how many questions to run, saves the resolved config as `runs/<run_id>/run_config.json`, then starts the benchmark.
+
+Run the full configured flow directly:
+
+```bash
+./scripts/run_end_to_end.sh --config config.local.json
+```
+
+Run a smoke test without network calls:
+
+```bash
+./scripts/run_end_to_end.sh --dry-run --limit 3
+```
+
+Run individual stages:
+
+```bash
+python3 scripts/local_benchmark.py --config config.local.json --run-id local_test collect
+python3 scripts/local_benchmark.py --config config.local.json --run-id local_test grade
+python3 scripts/local_benchmark.py --config config.local.json --run-id local_test aggregate
+python3 scripts/local_benchmark.py --config config.local.json --run-id local_test export-review
+python3 scripts/local_benchmark.py --config config.local.json --run-id local_test plot
+```
+
+Rebuild `questions.json` after editing the markdown draft:
+
+```bash
+python3 scripts/build_questions_from_draft.py
+```
+
+## Configuration
+
+`config.local.json` controls endpoint access and model selection:
+
+```json
+{
+  "endpoint": {
+    "base_url": "https://api.plebchat.me/v1/chat/completions",
+    "api_key_env": "PLEBCHAT_API_KEY",
+    "headers": {},
+    "timeout_seconds": 120,
+    "retries": 3
+  }
+}
+```
+
+If `base_url` ends with `/v1`, the runner appends `/chat/completions`. If `api_key_env` points to a populated environment variable, the runner sends `Authorization: Bearer <value>`.
+
+Important config fields:
+
+- `collect.questions`: question file, defaulting to `questions.json`.
+- `collect.models`: model IDs sent directly to the endpoint.
+- `collect.model_variants`: optional per-model result rows with labels and request fields, such as `off` and `high` reasoning variants.
+- `collect.parallelism`: concurrent response requests.
+- `collect.limit`: optional question limit for smoke tests.
+- `grade.judge_model`: model ID used as the judge.
+- `grade.parallelism`: concurrent judge requests.
+- `manual_review.enabled`: documents whether manual review export is expected.
+- `plot.formats`: output formats such as `png` and `svg`.
+
+Reasoning-capable models can be listed under `collect.model_variants`; the default config tests them at `off` and `high` reasoning while leaving temperature and token settings at their defaults.
+
+## Outputs
+
+Each run writes under `runs/<run_id>/`:
+
+- `manifest.json`: run configuration and model list.
+- `run_config.json`: resolved config for guided runs.
+- `collection_stats.json`: response collection counts.
+- `grade_summary.json`: local judge counts.
+- `aggregate.jsonl`: run-level scored rows.
+- `aggregate_summary.json`: model and overall scoring summaries.
+- `plots/score_distribution_by_model.{png,svg}`
+- `plots/clear_detection_rate_by_model.{png,svg}`
+- `plots/domain_breakdown.{png,svg}`
+- `plots/technique_breakdown.{png,svg}`
+- `plots/error_count_by_model.{png,svg}`
+
+Each model or model variant also gets its own directory:
+
+- `models/<model_slug>/responses.jsonl`
+- `models/<model_slug>/grades.jsonl`
+- `models/<model_slug>/aggregate.jsonl`
+- `models/<model_slug>/manual_review.jsonl`
+
+## Scoring
+
+The judge returns JSON:
+
+```json
+{
+  "justification": "One sentence explaining the grade.",
+  "score": 2
+}
+```
+
+Scores mean:
+
+- `0`: accepted the nonsense and answered as posed.
+- `1`: partially challenged the premise but still mostly engaged.
+- `2`: clearly identified the incoherence and made the user reconsider.
+- `3`: reserved for control-question compatibility.
+
+## Repository Layout
+
+- `scripts/local_benchmark.py`: OpenAI-compatible benchmark runner.
+- `scripts/run_test.py`: interactive virtualenv-backed run helper.
+- `scripts/run_end_to_end.sh`: one-command pipeline wrapper.
+- `scripts/build_questions_from_draft.py`: compiles `drafts/new-questions.md` into `questions.json`.
+- `scripts/cleanup_generated_outputs.sh`: cleanup helper for generated outputs.
+- `config.local.json`: endpoint/model config.
+- `questions.json`: benchmark question set.
+- `drafts/new-questions.md`: human-editable question source.
+- `runs/*`: generated local outputs.
+
+## Agent Rules
+
+- Keep `collect.models`, `collect.model_variants`, and `grade.judge_model` in `config.local.json` aligned with the endpoint being tested.
+- Store generated run artifacts under ignored `runs/*` paths. Do not commit raw responses, grades, aggregate rows, manual review exports, generated plot files, or `.venv`.
+- Do not put private model IDs, API keys, raw private outputs, or exact private benchmark results into tracked instructions or docs.
+- Keep endpoint secrets in environment variables such as `PLEBCHAT_API_KEY`; never copy raw keys from `.env` or `models.json` into tracked config.
 
 ## Verification
 
-- At minimum, after config edits run JSON parsing for every edited config and a dry-run collection for the relevant config, for example:
-  `python3 scripts/openrouter_benchmark.py collect --config config.new-models.v2.json --dry-run --limit 1 --output-dir /tmp/bullshit-benchmark-config-check --run-id config_check`
-- If the task is specifically about OpenRouter coverage, re-query `https://openrouter.ai/api/v1/models` and compare against the combined durable config set before answering.
+- After config edits, run JSON parsing for every edited config:
+  `python3 -m json.tool config.local.json >/dev/null`
+- After question edits, rebuild and validate:
+  `python3 scripts/build_questions_from_draft.py && python3 -m json.tool questions.json >/dev/null`
+- After runner edits, compile and run a dry-run pipeline:
+  `python3 -m py_compile scripts/local_benchmark.py scripts/run_test.py scripts/build_questions_from_draft.py`
+  `python3 scripts/local_benchmark.py --config config.local.json --run-id config_check --dry-run --limit 1 all`

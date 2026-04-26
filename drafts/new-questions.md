@@ -1,6 +1,6 @@
-# Bullshit Benchmark — Draft Questions v2
+# Bullshit Benchmark — Draft Questions
 
-100 questions across 5 domains using v1-proven techniques. All adversarially validated.
+100 questions across 5 domains. All adversarially validated.
 
 ## Categories
 

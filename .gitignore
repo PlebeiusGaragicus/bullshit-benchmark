@@ -2,6 +2,7 @@ runs/
 runs_*/
 __pycache__/
 *.pyc
+.venv/
 .DS_Store
 share/
 tmp_*.json
@@ -9,14 +10,11 @@ tmp_*.json
 *_report.html
 
 # Local experiment outputs / previews (not for GitHub)
-config.v1.gpt-5.2-chat.json
-config.v2.gpt-5.2-chat.json
-data/v1/
-data/ad_hoc/
-data/model_metadata/open_source_params_sidecar.csv
 readme.preview.html
 drafts/*.html
 side-tests/
 drafts/*.docx
 drafts/*.py
 drafts/screenshots/
+
+.env

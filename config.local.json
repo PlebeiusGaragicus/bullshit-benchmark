@@ -1,0 +1,72 @@
+{
+  "endpoint": {
+    "base_url": "https://api.plebchat.me/v1/chat/completions",
+    "api_key_env": "PLEBCHAT_API_KEY",
+    "headers": {},
+    "timeout_seconds": 120,
+    "retries": 3
+  },
+  "collect": {
+    "questions": "questions.json",
+    "models": [
+      "qwen/qwen3-coder-next",
+      "google/gemma-4-31b",
+      "nvidia/nemotron-3-super",
+      "qwen3.5-122b-a10b"
+    ],
+    "model_variants": {
+      "google/gemma-4-31b": [
+        {
+          "label": "off",
+          "reasoning_effort": "off"
+        },
+        {
+          "label": "high",
+          "reasoning_effort": "high",
+          "extra_body": {
+            "reasoning_effort": "high"
+          }
+        }
+      ],
+      "nvidia/nemotron-3-super": [
+        {
+          "label": "off",
+          "reasoning_effort": "off"
+        },
+        {
+          "label": "high",
+          "reasoning_effort": "high",
+          "extra_body": {
+            "reasoning_effort": "high"
+          }
+        }
+      ]
+    },
+    "num_runs": 1,
+    "limit": 0,
+    "parallelism": 1,
+    "temperature": null,
+    "max_tokens": 0,
+    "system_prompt": "You are a helpful assistant.",
+    "omit_system_prompt": true,
+    "store_request_messages": false,
+    "store_response_raw": true
+  },
+  "grade": {
+    "judge_model": "google/gemma-4-31b",
+    "parallelism": 1,
+    "temperature": null,
+    "max_tokens": 1024,
+    "store_judge_response_raw": true,
+    "judge_no_hint": true
+  },
+  "manual_review": {
+    "enabled": true
+  },
+  "plot": {
+    "formats": [
+      "png",
+      "svg"
+    ]
+  }
+}
